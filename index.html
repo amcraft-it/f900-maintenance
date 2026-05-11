@@ -2213,14 +2213,74 @@ function tdZoom(id, idx) {
   if(!t||!t.attachFiles) return;
   const af = t.attachFiles[idx];
   if(!af) return;
+
+  // For Drive-stored files, request a larger thumbnail size
+  let src = af.dataUrl || af.viewUrl || '';
+  if (af.driveFileId) {
+    src = 'https://drive.google.com/thumbnail?id=' + af.driveFileId + '&sz=w2000';
+  }
+  const dl = af.downloadUrl || src;
+
   const ov = document.createElement('div');
-  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;padding:20px';
-  ov.onclick=()=>ov.remove();
-  const img = document.createElement(af.type&&af.type.startsWith('video/')? 'video':'img');
-  img.src=af.dataUrl;
-  img.style.cssText='max-width:90vw;max-height:88vh;border-radius:8px;object-fit:contain;box-shadow:0 16px 64px rgba(0,0,0,.5)';
-  if(img.tagName==='VIDEO'){img.controls=true;img.style.cursor='default';}
-  ov.appendChild(img);
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:zoom-out;padding:20px;gap:14px';
+  ov.onclick=(e)=>{ if(e.target===ov) ov.remove(); };
+
+  const isVideo = af.type && af.type.startsWith('video/');
+  const isImage = af.type && af.type.startsWith('image/');
+
+  let media;
+  if(isVideo) {
+    media = document.createElement('video');
+    media.src = af.downloadUrl || src;
+    media.controls = true;
+    media.style.cssText='max-width:90vw;max-height:80vh;border-radius:8px;cursor:default';
+  } else if(isImage) {
+    media = document.createElement('img');
+    media.src = src;
+    media.referrerPolicy = 'no-referrer';
+    media.style.cssText='max-width:90vw;max-height:80vh;border-radius:8px;object-fit:contain;box-shadow:0 16px 64px rgba(0,0,0,.5)';
+  } else {
+    // Non-image/video — show a file card
+    media = document.createElement('div');
+    media.style.cssText='background:#fff;padding:48px 64px;border-radius:12px;text-align:center;font-family:Montserrat,sans-serif;color:#1E2760';
+    media.innerHTML = '<div style="font-size:48px;margin-bottom:12px">📄</div><div style="font-size:16px;font-weight:700;margin-bottom:8px">'+esc(af.name||'file')+'</div><div style="font-size:13px;color:#7A8899">Click the button below to download</div>';
+  }
+  ov.appendChild(media);
+
+  // Action buttons
+  const bar = document.createElement('div');
+  bar.style.cssText='display:flex;gap:10px;align-items:center';
+  bar.onclick=(e)=>e.stopPropagation();
+
+  const dlBtn = document.createElement('a');
+  dlBtn.href = dl;
+  dlBtn.target = '_blank';
+  dlBtn.textContent = '↓ Download';
+  dlBtn.style.cssText='padding:10px 22px;background:#92C47D;color:#fff;border-radius:6px;text-decoration:none;font-family:Montserrat,sans-serif;font-size:13px;font-weight:700;letter-spacing:.3px';
+  bar.appendChild(dlBtn);
+
+  if (af.driveFileId) {
+    const driveBtn = document.createElement('a');
+    driveBtn.href = 'https://drive.google.com/file/d/' + af.driveFileId + '/view';
+    driveBtn.target = '_blank';
+    driveBtn.textContent = '↗ Open in Drive';
+    driveBtn.style.cssText='padding:10px 22px;background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:6px;text-decoration:none;font-family:Montserrat,sans-serif;font-size:13px;font-weight:700;letter-spacing:.3px';
+    bar.appendChild(driveBtn);
+  }
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕ Close';
+  closeBtn.style.cssText='padding:10px 22px;background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:6px;font-family:Montserrat,sans-serif;font-size:13px;font-weight:700;letter-spacing:.3px;cursor:pointer';
+  closeBtn.onclick=()=>ov.remove();
+  bar.appendChild(closeBtn);
+
+  ov.appendChild(bar);
+
+  const lbl = document.createElement('div');
+  lbl.style.cssText='color:rgba(255,255,255,.5);font-size:11px;font-family:DM Mono,monospace;letter-spacing:.5px';
+  lbl.textContent = esc(af.name||'attachment');
+  ov.appendChild(lbl);
+
   document.body.appendChild(ov);
 }
 
