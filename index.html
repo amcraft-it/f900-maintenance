@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<!-- AM-Craft universal Google Sign-In gate (must be first to hide content immediately) -->
+<script src="https://amcraft-it.github.io/auth/auth.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>F900 Maintenance Log – AM-Craft</title>
@@ -2360,7 +2362,14 @@ function checkFormReady() {
   }
 }
 
-init();
+// Wait for AM-Craft auth before running init — if already authenticated, run immediately
+if (window.amcraftAuth && window.amcraftAuth.isAuthenticated()) {
+  init();
+} else {
+  window.addEventListener('amcraft-auth-success', function() {
+    init();
+  }, { once: true });
+}
 
 // Wire validation listeners after DOM is ready
 (function wireValidation() {
