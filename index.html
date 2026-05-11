@@ -1271,12 +1271,21 @@ body{font-family:var(--font-sans);font-size:14px;line-height:1.5;color:var(--tex
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(body),
-        redirect: 'follow'
+        redirect: 'follow',
+        mode: 'cors'
       });
-      const d = await r.json();
+      const text = await r.text();
+      console.log('API response status:', r.status, 'body:', text.substring(0, 500));
+      let d;
+      try { d = JSON.parse(text); }
+      catch(e) { throw new Error('Non-JSON response (status '+r.status+'): '+text.substring(0,200)); }
       if (d.error) throw new Error(d.error);
       return d;
-    } catch(e) { console.warn('API POST failed:', e); return null; }
+    } catch(e) {
+      console.error('API POST failed:', e);
+      window._lastApiError = e.message;
+      return null;
+    }
   }
 
   // ── API URL setup (called from settings button) ──────────────
@@ -1629,8 +1638,10 @@ async function saveAll(){
         setSt('SAVED TO SHEETS ✓ ' + new Date().toISOString().slice(0,16).replace('T',' '));
         toast('Saved to Google Sheets','✓');
       } else {
-        setSt('SHEET SAVE FAILED — LOCAL BACKUP OK');
-        toast('Sheets error — local backup saved','!');
+        const err = window._lastApiError || 'unknown';
+        setSt('SHEET SAVE FAILED: ' + err.substring(0,80));
+        toast('Sheets error — check console (F12)','!');
+        console.error('Full error:', window._lastApiError);
       }
     } catch(e) {
       setSt('OFFLINE — SAVED LOCALLY');
