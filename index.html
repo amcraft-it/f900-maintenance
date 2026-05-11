@@ -714,6 +714,10 @@ body{font-family:var(--font-sans);font-size:14px;line-height:1.5;color:var(--tex
 .tkt-th-pm     { width:110px }
 .tkt-col-short { width:auto }
 .tkt-th-actions{ width:160px }
+
+.td-attach-file{display:flex;flex-direction:column;align-items:center;gap:4px;width:80px;height:80px;border-radius:6px;border:1px solid #E2E6EA;padding:8px;text-decoration:none;color:#5A6372;font-size:10px;text-align:center;background:#F8F9FA;justify-content:center;cursor:pointer;transition:background .15s}
+.td-attach-file:hover{background:#EAF5EF;color:#1E2760}
+.td-attach-name{font-family:'Montserrat',sans-serif;line-height:1.2;word-break:break-word;font-weight:600}
 </style>
 </head>
 <body>
@@ -850,7 +854,7 @@ body{font-family:var(--font-sans);font-size:14px;line-height:1.5;color:var(--tex
           <div class="tform-field tform-full">
             <label>Attachments (Photos / Videos)</label>
             <div class="attach-zone" id="attach-zone" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
-              <input type="file" id="tf-files" accept="image/*,video/*" multiple onchange="onFilePick(event)">
+              <input type="file" id="tf-files" accept="*/*" multiple onchange="onFilePick(event)">
               <div class="attach-icon">
                 <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 3v10M5 8l5-5 5 5"/><path d="M3 17h14"/></svg>
               </div>
@@ -1755,7 +1759,7 @@ function renderPreviews() {
 function removeAttach(i) { attachFiles.splice(i,1); renderPreviews(); }
 
 // ── Submit ticket ───────────────────────────────
-function submitTicket() {
+async function submitTicket() {
   const createdBy = document.getElementById('tf-createdby').value;
   const system    = document.getElementById('tf-system').value;
   const severity  = document.getElementById('tf-severity').value;
@@ -1768,27 +1772,69 @@ function submitTicket() {
   if(!severity)   { toast('Select Severity','⚠'); return; }
   if(!shortDesc)  { toast('Short description required','⚠'); return; }
 
+  const btn = document.getElementById('btn-submit');
+  if(btn) btn.disabled = true;
+
   const ticket = {
     id: ((S.tickets||[]).length + 1),
     dateCreated: new Date().toISOString().split('T')[0],
     createdBy,
     initials: INITIALS[createdBy] || createdBy.slice(0,2).toUpperCase(),
-    system,
-    severity,
-    lastpm,
-    shortDesc,
-    detailDesc,
+    system, severity, lastpm, shortDesc, detailDesc,
     attachCount: attachFiles.length,
     attachFiles: attachFiles.map(f=>({name:f.name, type:f.type, dataUrl:f.dataUrl})),
     status: 'progress',
     closedAt: ''
   };
 
+  // Push to backend FIRST
+  if (API_URL) {
+    setSt('CREATING TICKET…');
+    try {
+      const cres = await apiPost({ action: 'createTicket', ticket });
+      if (cres && cres.ok) {
+        ticket.id = cres.id;
+
+        // Upload attachments
+        if (attachFiles.length) {
+          const uploaded = [];
+          for (let i=0; i<attachFiles.length; i++) {
+            setSt('UPLOADING '+(i+1)+'/'+attachFiles.length+'…');
+            const f = attachFiles[i];
+            const base64 = f.dataUrl.split(',')[1];
+            const ures = await apiPost({
+              action: 'uploadAttachment',
+              ticketId: ticket.id,
+              file: { name: f.name, mimeType: f.type, dataBase64: base64, size: f.size||0 }
+            });
+            if (ures && ures.ok) {
+              uploaded.push({
+                id: ures.id, name: f.name, type: f.type,
+                driveFileId: ures.driveFileId,
+                viewUrl: ures.viewUrl,
+                downloadUrl: ures.downloadUrl
+              });
+            }
+          }
+          ticket.attachFiles = uploaded;
+          // Update ticket with real attach count
+          await apiPost({ action: 'updateTicket', ticket: {...ticket, attachCount: uploaded.length} });
+        }
+        setSt('TICKET CREATED ✓');
+      } else {
+        toast('Backend error — saved locally','!');
+        setSt('OFFLINE — LOCAL ONLY');
+      }
+    } catch(e) {
+      console.error('Create failed:', e);
+      toast('Offline — saved locally','!');
+    }
+  }
+
   S.tickets = S.tickets || [];
   S.tickets.push(ticket);
-  markDirty();
+  localStorage.setItem('f900-v3', JSON.stringify(S));
 
-  // Reset form
   ['tf-createdby','tf-system','tf-severity'].forEach(id=>{document.getElementById(id).value='';});
   document.getElementById('tf-severity').className='tform-select';
   document.getElementById('tf-lastpm').value='';
@@ -1796,9 +1842,11 @@ function submitTicket() {
   document.getElementById('tf-detail').value='';
   attachFiles=[];
   renderPreviews();
+  checkFormReady();
 
   updateTicketCounts();
   showEnvelope();
+  if(btn) btn.disabled = false;
 }
 
 // ── Render ticket tables ────────────────────────
@@ -1922,27 +1970,36 @@ function deleteTicket(id) {
 function viewAttach(id) {
   const t = (S.tickets||[]).find(x=>String(x.id)===String(id));
   if(!t||!t.attachFiles||!t.attachFiles.length) return;
-  // Simple modal with first image
-  const f = t.attachFiles[0];
   const overlay = document.createElement('div');
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out;flex-direction:column;gap:12px';
-  overlay.onclick=()=>overlay.remove();
+  overlay.onclick=(e)=>{ if(e.target===overlay) overlay.remove(); };
   const grid = document.createElement('div');
   grid.style.cssText='display:flex;flex-wrap:wrap;gap:12px;justify-content:center;max-width:90vw;max-height:80vh;overflow:auto';
   t.attachFiles.forEach(af=>{
-    if(af.type.startsWith('image/')){
+    const src = af.viewUrl || af.dataUrl;
+    const dl  = af.downloadUrl || src;
+    if(af.type && af.type.startsWith('image/')){
       const img = document.createElement('img');
-      img.src=af.dataUrl; img.style.cssText='max-width:320px;max-height:320px;border-radius:6px;object-fit:contain;box-shadow:0 8px 32px rgba(0,0,0,.4)';
+      img.src = src;
+      img.onerror = ()=>{ img.src = dl; };
+      img.style.cssText='max-width:320px;max-height:320px;border-radius:6px;object-fit:contain;box-shadow:0 8px 32px rgba(0,0,0,.4)';
       grid.appendChild(img);
-    } else {
+    } else if(af.type && af.type.startsWith('video/')){
       const v = document.createElement('video');
-      v.src=af.dataUrl; v.controls=true; v.style.cssText='max-width:320px;max-height:320px;border-radius:6px';
+      v.src=src; v.controls=true; v.style.cssText='max-width:320px;max-height:320px;border-radius:6px';
       grid.appendChild(v);
+    } else {
+      // Generic file: clickable card
+      const a = document.createElement('a');
+      a.href = dl; a.target='_blank';
+      a.style.cssText='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:180px;height:180px;background:#fff;border-radius:8px;color:#1E2760;text-decoration:none;padding:16px;font-family:Montserrat,sans-serif;font-size:12px;text-align:center';
+      a.innerHTML='<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>'+esc(af.name)+'</span><span style="font-size:10px;color:#7A8899">Click to download</span>';
+      grid.appendChild(a);
     }
   });
   const lbl = document.createElement('div');
   lbl.style.cssText='color:rgba(255,255,255,.5);font-size:12px;font-family:DM Mono,monospace';
-  lbl.textContent=`${t.attachFiles.length} attachment${t.attachFiles.length>1?'s':''} — click anywhere to close`;
+  lbl.textContent=`${t.attachFiles.length} attachment${t.attachFiles.length>1?'s':''} — click outside to close`;
   overlay.appendChild(grid);
   overlay.appendChild(lbl);
   document.body.appendChild(overlay);
@@ -2005,9 +2062,14 @@ function openTicketDetail(id) {
   if(t.attachFiles && t.attachFiles.length) {
     const thumbs = t.attachFiles.map((af,i) => {
       if(af.type && af.type.startsWith('image/')) {
-        return `<img class="td-attach-img" src="${af.dataUrl}" alt="${esc(af.name)}" onclick="tdZoom('${id}',${i})">`;
+        return `<img class="td-attach-img" src="${af.viewUrl||af.dataUrl}" alt="${esc(af.name)}" onclick="tdZoom('${id}',${i})" onerror="this.src='${af.downloadUrl||af.viewUrl||af.dataUrl}'">`;
+      } else if(af.type && af.type.startsWith('video/')) {
+        return `<video class="td-attach-vid" src="${af.viewUrl||af.dataUrl}" muted onclick="tdZoom('${id}',${i})"></video>`;
       } else {
-        return `<video class="td-attach-vid" src="${af.dataUrl}" muted></video>`;
+        return `<a href="${af.downloadUrl||'#'}" target="_blank" class="td-attach-file" title="${esc(af.name)}">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span class="td-attach-name">${esc(af.name && af.name.length>14?af.name.slice(0,12)+'…':af.name||'file')}</span>
+        </a>`;
       }
     }).join('');
     attachHtml = `<div><div class="td-sec-lbl">Attachments</div><div class="td-attach-row">${thumbs}</div></div>`;
