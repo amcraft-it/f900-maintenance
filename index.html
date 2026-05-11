@@ -1981,6 +1981,7 @@ function viewAttach(id) {
     if(af.type && af.type.startsWith('image/')){
       const img = document.createElement('img');
       img.src = src;
+      img.referrerPolicy = 'no-referrer';
       img.onerror = ()=>{ img.src = dl; };
       img.style.cssText='max-width:320px;max-height:320px;border-radius:6px;object-fit:contain;box-shadow:0 8px 32px rgba(0,0,0,.4)';
       grid.appendChild(img);
@@ -2062,7 +2063,7 @@ function openTicketDetail(id) {
   if(t.attachFiles && t.attachFiles.length) {
     const thumbs = t.attachFiles.map((af,i) => {
       if(af.type && af.type.startsWith('image/')) {
-        return `<img class="td-attach-img" src="${af.viewUrl||af.dataUrl}" alt="${esc(af.name)}" onclick="tdZoom('${id}',${i})" onerror="this.src='${af.downloadUrl||af.viewUrl||af.dataUrl}'">`;
+        return `<img class="td-attach-img" src="${af.viewUrl||af.dataUrl}" alt="${esc(af.name)}" referrerpolicy="no-referrer" onclick="tdZoom('${id}',${i})" onerror="this.style.display='none'">`;
       } else if(af.type && af.type.startsWith('video/')) {
         return `<video class="td-attach-vid" src="${af.viewUrl||af.dataUrl}" muted onclick="tdZoom('${id}',${i})"></video>`;
       } else {
